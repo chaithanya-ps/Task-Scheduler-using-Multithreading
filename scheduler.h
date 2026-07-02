@@ -62,7 +62,7 @@ class ThreadPool{
         std::queue <std::function<void()>> tasks;
         std::mutex q_mtx;
         std::condition_variable cv;
-        std::atomic <bool> stop;
+        std::atomic <bool> stop {false};
     
     public:
         ThreadPool(size_t threads){

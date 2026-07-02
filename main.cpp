@@ -45,7 +45,7 @@ std::vector<Task> loadInput(const std::string& filename) {
             std::cout << "Task " << id << " complete.\n";
         };
 
-        tasks.push_back(t);
+        tasks.emplace_back(std::move(t));
     }
 
     return tasks;
