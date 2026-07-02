@@ -3,6 +3,11 @@
 #include <vector>
 #include <queue>
 #include <unordered_map>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <functional>
 #include "task.h"
 #include "graph.h"
 
@@ -50,3 +55,56 @@ void runSequential(const std::vector<Task>& tasks, const std::vector<int>& order
             it->second->work();
     }
 }
+
+class ThreadPool{
+    private: 
+        std::vector <std::thread> workers;
+        std::queue <std::function<void()>> tasks;
+        std::mutex q_mtx;
+        std::condition_variable cv;
+        std::atomic <bool> stop;
+    
+    public:
+        ThreadPool(size_t threads){
+            for(size_t i = 0; i < threads; i++){
+                workers.emplace_back([this](){
+                    while(true){
+                        std::function<void()> task;{
+                            std::unique_lock <std::mutex> lock(this->q_mtx);
+                            this->cv.wait(lock, [this]{
+                                return this->stop || !this->tasks.empty();
+                            });
+
+                            if(this->stop && this->tasks.empty())
+                                return;
+                            
+                            task = std::move(this->tasks.front());
+                            this->tasks.pop();
+                        }
+                        task();
+                    }
+                });
+            }
+        }
+        
+        template <typename F>
+        void submit(F&& task){
+            std::unique_lock <std::mutex> lock(q_mtx);
+            if(stop)
+                return;
+            tasks.emplace(std::forward<F> (task));
+            lock.unlock();
+            cv.notify_one();
+        }
+
+        ~ThreadPool(){
+            {
+                std::unique_lock <std::mutex> lock(q_mtx);
+                stop = true;
+            }
+            cv.notify_all();
+            for(std::thread& worker : workers)
+                if(worker.joinable())
+                    worker.join();
+        }
+};
