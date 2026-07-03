@@ -8,8 +8,10 @@
 #include <condition_variable>
 #include <atomic>
 #include <functional>
+#include "logger.h"
 #include "task.h"
 #include "graph.h"
+
 
 //Find topological sorting of the graph given it is a DAG using Khan's Algorithm
 std::vector<int> topologicalSort(const std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree);
@@ -169,12 +171,21 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
             }
 
             if(!task->failed){
+                logMessage(" Task " + std::to_string(task->id) + " starting");
                 bool succ = task->work();
                 if(!succ){
+                    logMessage(" Task " + std::to_string(task->id) + " failed");
                     std::lock_guard<std::mutex> lk(mtx_failed);
                     task->failed = true;
                     failed = true;
                 }
+                else{
+                    logMessage(" Task " + std::to_string(task->id) + " completed");
+                }
+            }
+
+            else{
+                logMessage(" Task " + std::to_string(task->id) + " skipped");
             }
 
             auto it = dependents.find(task->id);

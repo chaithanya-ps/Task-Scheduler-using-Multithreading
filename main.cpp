@@ -5,6 +5,7 @@
 #include <string>
 #include <mutex>
 #include <thread>
+#include "logger.h"
 #include "task.h"
 #include "graph.h"
 #include "scheduler.h"
