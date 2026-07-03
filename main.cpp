@@ -3,20 +3,31 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <mutex>
+#include <thread>
 #include "task.h"
 #include "graph.h"
 #include "scheduler.h"
 
-/*
-  Parses a text file and converts it into a vector of Task structures.
-  Format: [task_id] [dep_id_1] [dep_id_2] [dep_id_3] ...
- */
-std::vector<Task> loadInput(const std::string& filename) {
+std::mutex logMtx;
+
+auto makeWork(int id, bool shouldFail){
+    return [id, shouldFail]() {
+        {
+            std::lock_guard<std::mutex> lk(logMtx);
+            std::cout << "  -> task " << id << " running" << std::endl;
+        }
+        return !shouldFail;
+    };
+}
+
+//Parses input file which contains details of the graph
+std::vector<Task> loadInput(const std::string& filename){
     std::vector<Task> tasks;
     std::ifstream file(filename);
 
     if (!file.is_open()) {
-        std::cerr << "Could not open file: " << filename << "\n";
+        std::cerr << "Could not open file: " << filename << std::endl;
         return tasks;
     }
 
@@ -27,10 +38,25 @@ std::vector<Task> loadInput(const std::string& filename) {
 
         std::stringstream ss(line);
         int id;
-        
-        // Read the task_id first
         if (!(ss >> id)) 
             continue;
+
+        std::string flag = "P";
+        std::string nextToken;
+        
+        if (ss >> nextToken) {
+            if (nextToken == "F") {
+                flag = "F";
+            } 
+            else if (nextToken == "P") {
+                flag = "P";
+            } 
+            else {
+                ss.seekg(-static_cast<std::streamoff>(nextToken.size()), std::ios_base::cur);
+            }
+        }
+
+        bool shouldFail = (flag == "F");
 
         std::vector<int> dependencies;
         int dep_id;
@@ -38,60 +64,58 @@ std::vector<Task> loadInput(const std::string& filename) {
             dependencies.push_back(dep_id);
         }
 
-        Task t(id, dependencies, [id]() {
-            std::cout << "Task " << id << " complete.\n";
-            return true;
-        });
-
-        tasks.emplace_back(std::move(t));
+        tasks.emplace_back(id, dependencies, makeWork(id, shouldFail));
     }
 
     return tasks;
 }
 
-int main(int argc, char* argv[]){
-    std::string filename; 
-    if (argc > 1) {
-        filename = argv[1];
-    }
-
-    // Parse and ingest tasks
-    std::vector<Task> tasks = loadInput(filename);
-    if (tasks.empty()) {
-        std::cerr << "Task list empty or missing.\n";
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <graph_input_file>" << std::endl;
         return 1;
     }
-    std::cout << "Loaded " << tasks.size() << " tasks.\n";
+    std::string filename = argv[1];
 
-    Dependents_Map dependents; //adjacency map
-    Indegree_Map indegree; //indegree map
+    std::cout << "Executing Graph: " << filename << std::endl;
 
-    buildGraph(tasks, dependents, indegree); // Constructing directed Graph
+    std::vector<Task> tasks = loadInput(filename);
+    if (tasks.empty()) {
+        std::cerr << "Task list empty or missing." << std::endl;
+        return 1;
+    }
 
-    // Check for Cycles
+    Dependents_Map dependents;
+    Indegree_Map indegree;
+    buildGraph(tasks, dependents, indegree);
+
     if (hasCycle(dependents)) {
-        std::cerr << "Deadlock Detected! Circular dependencies found.\n";
+        std::cerr << "Error: Deadlock Detected! Circular dependencies found." << std::endl;
         return 1; 
     }
-    std::cout << "No cycles found.\n";
 
-    // // Sort and Execute
-    // std::vector<int> order = topologicalSort(tasks, dependents, indegree);
-
-    //Instantiate Thread Pool with desired number of threads
-    ThreadPool pool(8);
-
-    // std::cout << "Execution sequence: ";
-    // for (size_t i = 0; i < order.size(); i++) {
-    //     std::cout << order[i] << (i == order.size() - 1 ? "\n" : " -> ");
-    // }
-    // std::cout << std::endl;
-
-    //runSequential(tasks, order);
-
-    //We'll use runParallel to make use of Multithreading
+    ThreadPool pool(std::thread::hardware_concurrency());
     runParallel(tasks, dependents, indegree, pool);
-    std::cout << "All tasks complete.\n";
 
-    return 0; 
+    std::cout << "Graph execution complete." << std::endl;
+
+    //Print all failed tasks
+    std::vector<int> failedTasks;
+    for (const auto& task : tasks){
+        if (task.failed){
+            failedTasks.push_back(task.id);
+        }
+    }
+
+    if (!failedTasks.empty()) {
+        std::cout << "The following tasks failed or were skipped due to failure:" << std::endl;
+        for (size_t i = 0; i < failedTasks.size(); ++i) {
+            std::cout << failedTasks[i] << (i == failedTasks.size() - 1 ? "" : ", ");
+        }
+        std::cout << std::endl;
+    } 
+    else{
+        std::cout << "All tasks finished successfully with zero failures." << std::endl;
+    }
+    return 0;
 }
