@@ -160,32 +160,36 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
         task.pending = indegree[task.id];
     }
 
+    int tot_Tasks = static_cast<int>(tasks.size());
+
     std::function<void(Task*)> submitTask;
 
     submitTask = [&](Task* task) {
-        pool.submit([&done, &lock_done, &cv_done, &dependents, &task_addr, &mtx_failed, submitTask, task]() {
+        pool.submit([&done, &lock_done, &cv_done, &dependents, &task_addr, &mtx_failed, tot_Tasks, submitTask, task]() {
             bool failed = false;
             {
                 std::lock_guard<std::mutex> lk(mtx_failed);
                 failed = task->failed;
             }
 
+            std::string id_str = std::to_string(task->id);
+            
             if(!task->failed){
-                logMessage(" Task " + std::to_string(task->id) + " starting");
+                logMessage("[STARTING] \t Task " + id_str + " starting");
                 bool succ = task->work();
                 if(!succ){
-                    logMessage(" Task " + std::to_string(task->id) + " failed");
+                    logMessage("[FAILED]  \t Task " + id_str + " failed");
                     std::lock_guard<std::mutex> lk(mtx_failed);
                     task->failed = true;
                     failed = true;
                 }
                 else{
-                    logMessage(" Task " + std::to_string(task->id) + " completed");
+                    logMessage("[DONE]    \t Task " + id_str + " completed");
                 }
             }
 
             else{
-                logMessage(" Task " + std::to_string(task->id) + " skipped");
+                logMessage("[SKIPPED] \t Task " + id_str + " skipped");
             }
 
             auto it = dependents.find(task->id);
@@ -202,7 +206,7 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
                 }
             }
             int finished = ++done;
-            if(finished == static_cast<int>(task_addr.size())){
+            if(finished == tot_Tasks){
                 std::lock_guard<std::mutex> lk(lock_done);
                 cv_done.notify_all();
             }

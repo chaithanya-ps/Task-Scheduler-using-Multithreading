@@ -4,6 +4,7 @@
 #include <mutex>
 #include <chrono>
 #include <sstream>
+#include <thread>
 #include <iomanip>
 
 std::mutex print_lock;
@@ -25,6 +26,6 @@ inline std::string currentTimestamp() {
 inline void logMessage(const std::string& msg){
     {
         std::lock_guard <std::mutex> lk(print_lock);
-        std::cout << currentTimestamp() << " Thread Id:" << std::this_thread::get_id() << msg << std::endl;
+        std::cout << currentTimestamp() << "\tThread Id:" << std::this_thread::get_id() << "\t" << msg << std::endl;
     }
 }
