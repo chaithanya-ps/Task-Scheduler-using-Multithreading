@@ -19,7 +19,7 @@ bool hasCycle(const Dependents_Map& dependents);
 // Function to run dfs to find cycles
 bool dfs(int u,const Dependents_Map& dependents, std::unordered_map<int, int>& state);
 
-// globalenum so that both hasCycle and dfs can access it
+// global enum so that both hasCycle and dfs can access it
 enum visit{
         UNVISITED, 
         VISITING, 

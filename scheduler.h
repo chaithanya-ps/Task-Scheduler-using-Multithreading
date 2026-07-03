@@ -17,6 +17,10 @@ std::vector<int> topologicalSort(const std::vector<Task>& tasks, const Dependent
 //Run tasks sequentially in the order of topological sort
 void runSequential(const std::vector<Task>& tasks, const std::vector<int>& order);
 
+//Run tasks parallely, Multhithreading comes in place from here
+//void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree, ThreadPool& pool);
+//function is defined before Thread Pool, causing syntax error
+
 std::vector<int> topologicalSort(const std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree){
     std::queue<int> q;
     std::vector<int> order;
@@ -55,6 +59,27 @@ void runSequential(const std::vector<Task>& tasks, const std::vector<int>& order
             it->second->work();
     }
 }
+
+/*
+    Class thread pool (Standard setup)
+
+    Constructor: 
+    It'll create threads
+    Using condition variable 
+    Will place tasks in a queue to follow upon with execution
+    Will run until stop is called and queue becomes empty
+    Makes sure all tasks are run before stopping
+
+    Submit: 
+    Adds task to the queue and notifies one of the thread to perform the task
+    Uses rvalues for maximum efficiency
+
+    Destructor:
+    Notifies all to stop
+    Joins threads to main thread
+
+
+*/
 
 class ThreadPool{
     private: 
@@ -108,3 +133,57 @@ class ThreadPool{
                     worker.join();
         }
 };
+
+
+/*
+    Run parallel function to use multiple threads to perform tesks.
+    We'll use a atomic variable "done" to check if all tasks are completed
+    Created a hashmap with task id's and their address for O(1) lookup
+    Assigning no. of pending tasks to indegree since the constructor in task.h initializes it with 0
+    lambda funtion to send submit request to the thread pool
+    recursively calling for when number of pending tasks hits 0
+*/
+void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree, ThreadPool& pool){
+    std::atomic <int> done{0};
+    std::mutex lock_done;
+    std::condition_variable cv_done;
+    std::unordered_map<int, Task*> task_addr;
+
+    for (auto& task : tasks) {
+        task_addr[task.id] = &task;
+    }
+
+     for (auto& task : tasks) {
+        task.pending = indegree[task.id];
+    }
+
+    std::function<void(const Task*)> submitTask = [&](const Task* task) {
+        pool.submit([&, task]() {
+            task->work();
+
+            auto it = dependents.find(task->id);
+            if(it != dependents.end()){
+                for(auto& id : it->second){
+                    int rem = --(task_addr[id]->pending);
+                    if(rem == 0)
+                        submitTask(task_addr[id]);
+                }
+            }
+            int finished = ++done;
+            if(finished == static_cast<int>(tasks.size())){
+                cv_done.notify_all();
+            }
+        });
+    };
+
+    for(const auto& task : tasks){
+        if(task.pending == 0){
+            submitTask(&task);
+        }
+    }
+
+    std::unique_lock<std::mutex> lk(lock_done);
+    cv_done.wait(lk, [&]{ 
+        return done.load() == static_cast<int>(tasks.size()); }
+    ); 
+}

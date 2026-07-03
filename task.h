@@ -5,7 +5,10 @@
 #include <atomic>
 
 /* Task is defined using its ID, the functions it works on
-    and all other tasks it is depends upon(the prerequisites)*/
+    and all other tasks it is depends upon(the prerequisites)
+    
+    Using defualt constructor, copy constructor and move (and assignment) constructors to instantiate task objects safely
+*/
     
 struct Task{
     int id;

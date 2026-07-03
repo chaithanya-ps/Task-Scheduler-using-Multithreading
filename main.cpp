@@ -57,7 +57,7 @@ int main(int argc, char* argv[]){
         filename = argv[1];
     }
 
-    // 1. Parse and ingest tasks
+    // Parse and ingest tasks
     std::vector<Task> tasks = loadInput(filename);
     if (tasks.empty()) {
         std::cerr << "Task list empty or missing.\n";
@@ -70,23 +70,30 @@ int main(int argc, char* argv[]){
 
     buildGraph(tasks, dependents, indegree); // Constructing directed Graph
 
-    // 4. Check for Cycles
+    // Check for Cycles
     if (hasCycle(dependents)) {
         std::cerr << "Deadlock Detected! Circular dependencies found.\n";
         return 1; 
     }
     std::cout << "No cycles found.\n";
 
-    // 5. Sort and Execute
-    std::vector<int> order = topologicalSort(tasks, dependents, indegree);
+    // // Sort and Execute
+    // std::vector<int> order = topologicalSort(tasks, dependents, indegree);
 
-    std::cout << "Execution sequence: ";
-    for (size_t i = 0; i < order.size(); i++) {
-        std::cout << order[i] << (i == order.size() - 1 ? "\n" : " -> ");
-    }
-    std::cout << std::endl;
+    //Instantiate Thread Pool with desired number of threads
+    ThreadPool pool(8);
 
-    runSequential(tasks, order);
+    // std::cout << "Execution sequence: ";
+    // for (size_t i = 0; i < order.size(); i++) {
+    //     std::cout << order[i] << (i == order.size() - 1 ? "\n" : " -> ");
+    // }
+    // std::cout << std::endl;
+
+    //runSequential(tasks, order);
+
+    //We'll use runParallel to make use of Multithreading
+    runParallel(tasks, dependents, indegree, pool);
+    std::cout << "All tasks complete.\n";
 
     return 0; 
 }
