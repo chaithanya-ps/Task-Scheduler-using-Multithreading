@@ -12,14 +12,14 @@
     
 struct Task{
     int id;
-    std::function <void()> work;
+    std::function <bool()> work;
     std::vector <int> dependencies;
     std::atomic <int> pending {0};
     bool failed = false;
 
     Task() : id(0), work(nullptr), failed(false){}
     
-    Task(int id_cp, const std::vector<int>& deps, std::function <void()> work_cp = nullptr)
+    Task(int id_cp, const std::vector<int>& deps, std::function <bool()> work_cp = nullptr)
      : id(id_cp), work(work_cp), dependencies(deps), pending(static_cast <int> (deps.size())), failed(false) {}
 
     Task(Task&& other) noexcept 

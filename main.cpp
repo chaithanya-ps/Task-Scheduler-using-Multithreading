@@ -38,12 +38,10 @@ std::vector<Task> loadInput(const std::string& filename) {
             dependencies.push_back(dep_id);
         }
 
-        Task t;
-        t.id = id;
-        t.dependencies = dependencies;
-        t.work = [id]() {
+        Task t(id, dependencies, [id]() {
             std::cout << "Task " << id << " complete.\n";
-        };
+            return true;
+        });
 
         tasks.emplace_back(std::move(t));
     }

@@ -134,7 +134,6 @@ class ThreadPool{
         }
 };
 
-
 /*
     Run parallel function to use multiple threads to perform tesks.
     We'll use a atomic variable "done" to check if all tasks are completed
@@ -142,12 +141,14 @@ class ThreadPool{
     Assigning no. of pending tasks to indegree since the constructor in task.h initializes it with 0
     lambda funtion to send submit request to the thread pool
     recursively calling for when number of pending tasks hits 0
+    Propogate failed tasks to the once which depended on it
 */
 void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree, ThreadPool& pool){
     std::atomic <int> done{0};
     std::mutex lock_done;
     std::condition_variable cv_done;
     std::unordered_map<int, Task*> task_addr;
+    std::mutex mtx_failed;
 
     for (auto& task : tasks) {
         task_addr[task.id] = &task;
@@ -157,33 +158,55 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
         task.pending = indegree[task.id];
     }
 
-    std::function<void(const Task*)> submitTask = [&](const Task* task) {
-        pool.submit([&, task]() {
-            task->work();
+    std::function<void(Task*)> submitTask;
+
+    submitTask = [&](Task* task) {
+        pool.submit([&done, &lock_done, &cv_done, &dependents, &task_addr, &mtx_failed, submitTask, task]() {
+            bool failed = false;
+            {
+                std::lock_guard<std::mutex> lk(mtx_failed);
+                failed = task->failed;
+            }
+
+            if(!task->failed){
+                bool succ = task->work();
+                if(!succ){
+                    std::lock_guard<std::mutex> lk(mtx_failed);
+                    task->failed = true;
+                    failed = true;
+                }
+            }
 
             auto it = dependents.find(task->id);
             if(it != dependents.end()){
                 for(auto& id : it->second){
+                    if (failed) {
+                        std::lock_guard<std::mutex> lk(mtx_failed);
+                        task_addr[id]->failed = true;
+                    }
                     int rem = --(task_addr[id]->pending);
-                    if(rem == 0)
+                    if(rem == 0){
                         submitTask(task_addr[id]);
+                    }
                 }
             }
             int finished = ++done;
-            if(finished == static_cast<int>(tasks.size())){
+            if(finished == static_cast<int>(task_addr.size())){
+                std::lock_guard<std::mutex> lk(lock_done);
                 cv_done.notify_all();
             }
         });
     };
 
-    for(const auto& task : tasks){
-        if(task.pending == 0){
+    for(auto& task : tasks){
+        if(indegree[task.id] == 0){
             submitTask(&task);
-        }
     }
+}
 
     std::unique_lock<std::mutex> lk(lock_done);
     cv_done.wait(lk, [&]{ 
         return done.load() == static_cast<int>(tasks.size()); }
     ); 
 }
+

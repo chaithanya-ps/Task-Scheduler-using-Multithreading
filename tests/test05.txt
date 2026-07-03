@@ -1,0 +1,68 @@
+void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree, ThreadPool& pool){
+    std::atomic<int> done{0};
+    std::mutex lock_done;
+    std::condition_variable cv_done;
+    std::unordered_map<int, Task*> task_addr;
+    std::mutex mtx_failed;
+
+    for (auto& task : tasks) {
+        task_addr[task.id] = &task;
+    }
+
+    for (auto& task : tasks) {
+        task.pending = indegree[task.id];
+    }
+
+    std::function<void(Task*)> submitTask;
+    
+    submitTask = [&](Task* task) {
+        pool.submit([&done, &lock_done, &cv_done, &dependents, &task_addr, &mtx_failed, submitTask, task]() {
+            bool is_failed = false;
+            {
+                std::lock_guard<std::mutex> lk(mtx_failed);
+                is_failed = task->failed;
+            }
+
+            if (!is_failed) {
+                bool succ = task->work();
+                if (!succ) {
+                    std::lock_guard<std::mutex> lk(mtx_failed);
+                    task->failed = true;
+                    is_failed = true;
+                }
+            }
+
+            auto it = dependents.find(task->id);
+            if (it != dependents.end()) {
+                for (auto& id : it->second) {
+                    if (is_failed) {
+                        std::lock_guard<std::mutex> lk(mtx_failed);
+                        task_addr[id]->failed = true;
+                    }
+                    
+                    int rem = --(task_addr[id]->pending);
+                    if (rem == 0) {
+                        submitTask(task_addr[id]);
+                    }
+                }
+            }
+
+            int finished = ++done;
+            if (finished == static_cast<int>(task_addr.size())) {
+                std::lock_guard<std::mutex> lk(lock_done);
+                cv_done.notify_all();
+            }
+        });
+    };
+
+    for (auto& task : tasks) {
+        if (indegree[task.id] == 0) {
+            submitTask(task_addr[task.id]);
+        }
+    }
+
+    std::unique_lock<std::mutex> lk(lock_done);
+    cv_done.wait(lk, [&] { 
+        return done.load() == static_cast<int>(tasks.size()); 
+    }); 
+}
