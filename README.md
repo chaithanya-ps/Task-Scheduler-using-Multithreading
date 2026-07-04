@@ -114,7 +114,7 @@ make_stress_tester.mk # builds stress_tester (with ThreadSanitizer), plus a test
 tests/                # hand-written test cases covering specific scenarios
     test01-07         # valid DAGs of increasing structural complexity
     test03            # deliberate cycle (should be rejected)
-    test08-10         # failure propagation, diamond-shaped failures, retries
+    test08-10         # failure propagation, retries
 ```
 
 ## Testing
