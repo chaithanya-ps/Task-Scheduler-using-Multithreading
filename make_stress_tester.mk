@@ -2,7 +2,6 @@
 
 CXX      := g++
 CXXFLAGS := -std=c++17 -Wreorder -Wall -Wextra -O1 -fsanitize=thread -g 
-LINKER := -lpthread
 
 # Target executable name
 TARGET   := stress_tester
@@ -16,7 +15,7 @@ all: $(TARGET)
 
 $(TARGET): Stress_Test.cpp task.h graph.h scheduler.h logger.h
 	@echo "Compiling $(TARGET)..."
-	$(CXX) $(CXXFLAGS) Stress_Test.cpp -o $(TARGET) $(LINKER)
+	$(CXX) $(CXXFLAGS) Stress_Test.cpp -o $(TARGET) 
 	@echo "Done!"
 
 # 2. Automatically loop through and run every test file found
