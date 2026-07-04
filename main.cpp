@@ -5,24 +5,33 @@
 #include <string>
 #include <mutex>
 #include <thread>
+#include <algorithm>
+#include <cctype>
 #include "logger.h"
 #include "task.h"
 #include "graph.h"
 #include "scheduler.h"
 
-std::mutex logMtx;
 
 auto makeWork(int id, bool shouldFail){
     return [id, shouldFail]() {
         {
-            std::lock_guard<std::mutex> lk(logMtx);
-            std::cout << "  -> task " << id << " running" << std::endl;
+           logMessage("[RUNNING] \t Task " + std::to_string(id) + " running");
         }
         return !shouldFail;
     };
 }
 
-//Parses input file which contains details of the graph
+/*
+    Parses input file which contains details of the graph
+    Expected format of lines in the file
+    [ID] [P/F] [R<n>] [Dependency 1] [Dependency 2] ....
+
+    P/F : Pass or Fail
+    R<n> : Number of retries allowed
+
+    [P/F], [R<n>] not compulsory
+*/
 std::vector<Task> loadInput(const std::string& filename){
     std::vector<Task> tasks;
     std::ifstream file(filename);
@@ -42,18 +51,27 @@ std::vector<Task> loadInput(const std::string& filename){
         if (!(ss >> id)) 
             continue;
 
-        std::string flag = "P";
-        std::string nextToken;
+        std::string flag = "P"; // Default to PASS
+        int retry = 0; // Default number of retries allowed to 0
+        std::string nextToken; 
         
-        if (ss >> nextToken) {
-            if (nextToken == "F") {
-                flag = "F";
+        while (ss >> nextToken) { // Read all tokens
+
+            // If nextToken is F/P read it to PASS/FAIL
+            if (nextToken == "F" || nextToken == "P") {
+                flag = nextToken;
             } 
-            else if (nextToken == "P") {
-                flag = "P";
-            } 
-            else {
+            
+            // If nextToken is R<n>, read the maximum number of retries
+            else if(nextToken.size() > 1 && nextToken[0] == 'R' &&
+                    std::all_of(nextToken.begin() + 1, nextToken.end(), ::isdigit)) { 
+                        retry = std::stoi(nextToken.substr(1));
+                }
+
+            // Otherwise, stream pointer is moved to start of the Token
+            else { 
                 ss.seekg(-static_cast<std::streamoff>(nextToken.size()), std::ios_base::cur);
+                break;
             }
         }
 
@@ -65,7 +83,7 @@ std::vector<Task> loadInput(const std::string& filename){
             dependencies.push_back(dep_id);
         }
 
-        tasks.emplace_back(id, dependencies, makeWork(id, shouldFail));
+        tasks.emplace_back(id, dependencies, makeWork(id, shouldFail), retry);
     }
 
     return tasks;
@@ -86,19 +104,19 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Dependents_Map dependents;
+    Dependents_Map dependents; 
     Indegree_Map indegree;
-    buildGraph(tasks, dependents, indegree);
+    buildGraph(tasks, dependents, indegree); // Build Graph with given dependency list
 
-    if (hasCycle(dependents)) {
+    if (hasCycle(dependents)) { //Make sure no Cycle is present in the Graph
         std::cerr << "Error: Deadlock Detected! Circular dependencies found." << std::endl;
         return 1; 
     }
 
-    ThreadPool pool(std::thread::hardware_concurrency());
-    runParallel(tasks, dependents, indegree, pool);
+    ThreadPool pool(std::thread::hardware_concurrency()); // Runs on any system now
+    runParallel(tasks, dependents, indegree, pool); // Run with Multiple threads
 
-    std::cout << "Graph execution complete." << std::endl;
+    std::cout << "Graph execution complete." << std::endl; 
 
     //Print all failed tasks
     std::vector<int> failedTasks;

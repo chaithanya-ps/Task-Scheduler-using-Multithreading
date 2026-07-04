@@ -26,7 +26,10 @@ enum visit{
         VISITED
 };
 
-void buildGraph(const std::vector<Task> & tasks, Dependents_Map& dependents, Indegree_Map& indegree){
+void buildGraph(const std::vector<Task> & tasks, 
+                Dependents_Map& dependents,
+                Indegree_Map& indegree) {
+    
     for(const auto& task: tasks){
         indegree[task.id] = static_cast<int>(task.dependencies.size()); // indegree is number of dependencies f the task
 
@@ -35,7 +38,10 @@ void buildGraph(const std::vector<Task> & tasks, Dependents_Map& dependents, Ind
     }
 }
 
-bool dfs(int u,const Dependents_Map& dependents, std::unordered_map<int, int>& state){
+bool dfs(int u,
+         const Dependents_Map& dependents, 
+         std::unordered_map<int, int>& state) {
+
     state[u] = 1;
     auto it = dependents.find(u); 
     if(it != dependents.end()){      
@@ -50,7 +56,7 @@ bool dfs(int u,const Dependents_Map& dependents, std::unordered_map<int, int>& s
             }
         }
     }
-    state[u] = VISITED;
+    state[u] = VISITED; // Mark node as visited once dfs is done
     return false;
 }
 

@@ -14,16 +14,21 @@
 
 
 //Find topological sorting of the graph given it is a DAG using Khan's Algorithm
-std::vector<int> topologicalSort(const std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree);
+std::vector<int> topologicalSort(const std::vector<Task>& tasks, 
+                                 const Dependents_Map& dependents, 
+                                 Indegree_Map indegree);
 
 //Run tasks sequentially in the order of topological sort
-void runSequential(const std::vector<Task>& tasks, const std::vector<int>& order);
+void runSequential(const std::vector<Task>& tasks, 
+                   const std::vector<int>& order);
 
 //Run tasks parallely, Multhithreading comes in place from here
 //void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree, ThreadPool& pool);
 //function is defined before Thread Pool, causing syntax error
 
-std::vector<int> topologicalSort(const std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree){
+std::vector<int> topologicalSort(const std::vector<Task>& tasks, 
+                                 const Dependents_Map& dependents, 
+                                 Indegree_Map indegree) {
     std::queue<int> q;
     std::vector<int> order;
 
@@ -49,7 +54,8 @@ std::vector<int> topologicalSort(const std::vector<Task>& tasks, const Dependent
     return order;
 }
 
-void runSequential(const std::vector<Task>& tasks, const std::vector<int>& order){
+void runSequential(const std::vector<Task>& tasks, 
+                   const std::vector<int>& order) {
     std::unordered_map<int, const Task*> task_addr;
     for (const auto& task : tasks) {
         task_addr[task.id] = &task;
@@ -80,10 +86,9 @@ void runSequential(const std::vector<Task>& tasks, const std::vector<int>& order
     Notifies all to stop
     Joins threads to main thread
 
-
 */
 
-class ThreadPool{
+class ThreadPool {
     private: 
         std::vector <std::thread> workers;
         std::queue <std::function<void()>> tasks;
@@ -92,17 +97,17 @@ class ThreadPool{
         std::atomic <bool> stop {false};
     
     public:
-        ThreadPool(size_t threads){
+        ThreadPool(size_t threads) {
             for(size_t i = 0; i < threads; i++){
                 workers.emplace_back([this](){
                     while(true){
                         std::function<void()> task;{
-                            std::unique_lock <std::mutex> lock(this->q_mtx);
+                            std::unique_lock <std::mutex> lock(this->q_mtx); //Locking for popping tasks correctly
                             this->cv.wait(lock, [this]{
                                 return this->stop || !this->tasks.empty();
                             });
 
-                            if(this->stop && this->tasks.empty())
+                            if(this->stop && this->tasks.empty()) //Run all tasks before stopping
                                 return;
                             
                             task = std::move(this->tasks.front());
@@ -117,11 +122,11 @@ class ThreadPool{
         template <typename F>
         void submit(F&& task){
             std::unique_lock <std::mutex> lock(q_mtx);
-            if(stop)
+            if(stop) // If told to stop, needs to exit
                 return;
             tasks.emplace(std::forward<F> (task));
             lock.unlock();
-            cv.notify_one();
+            cv.notify_one(); // Notify any free thread to perform task
         }
 
         ~ThreadPool(){
@@ -129,10 +134,10 @@ class ThreadPool{
                 std::unique_lock <std::mutex> lock(q_mtx);
                 stop = true;
             }
-            cv.notify_all();
+            cv.notify_all(); // Notify all to stop
             for(std::thread& worker : workers)
                 if(worker.joinable())
-                    worker.join();
+                    worker.join();  // Join all threads to the main thread
         }
 };
 
@@ -145,18 +150,22 @@ class ThreadPool{
     recursively calling for when number of pending tasks hits 0
     Propogate failed tasks to the once which depended on it
 */
-void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Indegree_Map indegree, ThreadPool& pool){
-    std::atomic <int> done{0};
-    std::mutex lock_done;
-    std::condition_variable cv_done;
-    std::unordered_map<int, Task*> task_addr;
-    std::mutex mtx_failed;
+void runParallel(std::vector<Task>& tasks, 
+                 const Dependents_Map& dependents, 
+                 Indegree_Map indegree, 
+                 ThreadPool& pool) {
 
-    for (auto& task : tasks) {
+    std::atomic <int> done{0};
+    std::mutex lock_done; // lock to notify all that the task is done
+    std::condition_variable cv_done; // Condition variable to notify
+    std::unordered_map<int, Task*> task_addr; // Mp to store all task addresses with respect to its ID for O(1) lookup
+    std::mutex mtx_failed; // lock for failed tasks
+
+    for (auto& task : tasks) { // Assign task adress to its ID
         task_addr[task.id] = &task;
     }
 
-     for (auto& task : tasks) {
+     for (auto& task : tasks) { // Assign number of pending tasks as from Indegree Map
         task.pending = indegree[task.id];
     }
 
@@ -165,7 +174,11 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
     std::function<void(Task*)> submitTask;
 
     submitTask = [&](Task* task) {
-        pool.submit([&done, &lock_done, &cv_done, &dependents, &task_addr, &mtx_failed, tot_Tasks, submitTask, task]() {
+        pool.submit([&done, &lock_done, 
+                     &cv_done, &dependents, 
+                     &task_addr, &mtx_failed, 
+                     tot_Tasks, submitTask, task]() {
+
             bool failed = false;
             {
                 std::lock_guard<std::mutex> lk(mtx_failed);
@@ -174,46 +187,53 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
 
             std::string id_str = std::to_string(task->id);
             
-            if(!task->failed){
+            if(!failed) {
                 logMessage("[STARTING] \t Task " + id_str + " starting");
                 bool succ = task->work();
-                if(!succ){
-                    logMessage("[FAILED]  \t Task " + id_str + " failed");
+                if(!succ) {
+                    int attempt = ++(task->Retry_count);
+                    if(attempt <= task->maxRetry) { // Allow maxRetry number of attempts before the it passes
+                        logMessage("[RETRY]   \t Task " + id_str + " failed, retrying (attempt "
+                                   + std::to_string(attempt) + "/" + std::to_string(task->maxRetry) + ")");
+                        submitTask(task);
+                        return;
+                    }
+                    logMessage("[FAILED]  \t Task " + id_str + " failed (out of retries)"); // It still fails, therefore marked FAILED
                     std::lock_guard<std::mutex> lk(mtx_failed);
                     task->failed = true;
                     failed = true;
                 }
                 else{
-                    logMessage("[DONE]    \t Task " + id_str + " completed");
+                    logMessage("[DONE]    \t Task " + id_str + " completed"); // It succeeds, marked DONE
                 }
             }
 
-            else{
-                logMessage("[SKIPPED] \t Task " + id_str + " skipped");
+            else{ 
+                logMessage("[SKIPPED] \t Task " + id_str + " skipped"); //If it ends up being skipped, marked SKIPPED
             }
 
             auto it = dependents.find(task->id);
             if(it != dependents.end()){
                 for(auto& id : it->second){
-                    if (failed) {
+                    if (failed) { 
                         std::lock_guard<std::mutex> lk(mtx_failed);
-                        task_addr[id]->failed = true;
+                        task_addr[id]->failed = true; // Mark all its dependents as Failed
                     }
                     int rem = --(task_addr[id]->pending);
                     if(rem == 0){
-                        submitTask(task_addr[id]);
+                        submitTask(task_addr[id]); // If all its prerequisites have run, run this ID
                     }
                 }
             }
             int finished = ++done;
-            if(finished == tot_Tasks){
+            if(finished == tot_Tasks) { // Notify once all tasks are completed
                 std::lock_guard<std::mutex> lk(lock_done);
                 cv_done.notify_all();
             }
         });
     };
 
-    for(auto& task : tasks){
+    for(auto& task : tasks) { // Start by running all source tasks
         if(indegree[task.id] == 0){
             submitTask(&task);
     }
@@ -221,7 +241,7 @@ void runParallel(std::vector<Task>& tasks, const Dependents_Map& dependents, Ind
 
     std::unique_lock<std::mutex> lk(lock_done);
     cv_done.wait(lk, [&]{ 
-        return done.load() == static_cast<int>(tasks.size()); }
-    ); 
+        return done.load() == static_cast<int>(tasks.size()); 
+    }); 
 }
 

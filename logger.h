@@ -7,12 +7,12 @@
 #include <thread>
 #include <iomanip>
 
-std::mutex print_lock;
+std::mutex print_lock; // To avoid printed lines being mixed up 
 
-inline void logMessage(const std::string& msg);
-inline std::string currentTimestamp();
+void logMessage(const std::string& msg); // To print Message with [TIME] [THREAD ID] [MESSAGE]
+std::string currentTimestamp(); // To obtain current Time
 
-inline std::string currentTimestamp() {
+std::string currentTimestamp() {
 
     auto now = std::chrono::system_clock::now();
     
@@ -23,9 +23,9 @@ inline std::string currentTimestamp() {
     return curr_time.str();
 }
 
-inline void logMessage(const std::string& msg){
+void logMessage(const std::string& msg){
     {
         std::lock_guard <std::mutex> lk(print_lock);
-        std::cout << currentTimestamp() << "\tThread Id:" << std::this_thread::get_id() << "\t" << msg << std::endl;
+        std::cout << currentTimestamp() << "\tThread ID : " << std::this_thread::get_id() << "\t" << msg << std::endl;
     }
 }
